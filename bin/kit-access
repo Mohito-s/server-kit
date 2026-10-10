@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# kit-access — страховка доступа к серверу (потерял ключ, забанили, сломался SSH)
+[ -f /etc/server-kit/config.env ] && . /etc/server-kit/config.env
+BK=/root/kit-backups
+mkdir -p /run/sshd   # без этой папки sshd не стартует (баг Ubuntu 24.04)
+
+sshport() { local p; p=$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}'); echo "${p:-22}"; }
+
+case "${1:-help}" in
+status)
+  echo "== SSH =="
+  echo "Порт: $(sshport)"
+  sshd -T 2>/dev/null | grep -Ei '^(passwordauthentication|permitrootlogin|pubkeyauthentication) '
+  echo "Служба ssh: $(systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null)"
+  echo "Конфиг: $(sshd -t 2>&1 && echo OK)"
+  echo "== Файрвол =="
+  ufw status 2>/dev/null | grep -E "^($(sshport)|Status)"
+  echo "== Ключи root =="
+  [ -f /root/.ssh/authorized_keys ] && ssh-keygen -lf /root/.ssh/authorized_keys || echo "нет ключей"
+  echo "== Баны CrowdSec =="
+  cscli decisions list 2>/dev/null | head -15
+  ;;
+backup)
+  mkdir -p "$BK"; chmod 700 "$BK"
+  f="$BK/access-$(date +%F-%H%M).tar.gz"
+  tar czf "$f" /etc/ssh /root/.ssh/authorized_keys /etc/server-kit 2>/dev/null
+  chmod 600 "$f"
+  sshd -t 2>/dev/null && cp -f /etc/ssh/sshd_config /etc/ssh/sshd_config.kit-good
+  echo "Копия сохранена: $f (внутри секреты, никому не отправляй)"
+  ;;
+add-key)
+  key="${2:-}"
+  [ -n "$key" ] || { echo "Использование: kit-access add-key \"ssh-ed25519 AAAA... комментарий\""; exit 1; }
+  tmp=$(mktemp); echo "$key" > "$tmp"
+  ssh-keygen -lf "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; echo "Это не похоже на публичный SSH-ключ"; exit 1; }
+  rm -f "$tmp"
+  mkdir -p /root/.ssh; chmod 700 /root/.ssh
+  touch /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys
+  grep -qF "$key" /root/.ssh/authorized_keys || echo "$key" >> /root/.ssh/authorized_keys
+  echo "Ключ добавлен"
+  ;;
+unban)
+  [ -n "${2:-}" ] || { echo "Использование: kit-access unban 1.2.3.4"; exit 1; }
+  cscli decisions delete --ip "$2"
+  ;;
+unbanall)
+  cscli decisions delete --all
+  ;;
+repair)
+  echo "1) Копия настроек доступа"
+  "$0" backup | tail -1
+  echo "2) Папка /run/sshd"; mkdir -p /run/sshd; chmod 755 /run/sshd
+  echo "3) Проверка конфига SSH"
+  if ! sshd -t 2>/dev/null; then
+    if [ -f /etc/ssh/sshd_config.kit-good ]; then
+      cp -f /etc/ssh/sshd_config /etc/ssh/sshd_config.broken-$(date +%s)
+      cp -f /etc/ssh/sshd_config.kit-good /etc/ssh/sshd_config
+      echo "   конфиг был сломан, восстановлен последний рабочий"
+    else
+      echo "   конфиг сломан, а рабочей копии нет. Нужна консоль хостера."
+    fi
+  else
+    echo "   конфиг в порядке"
+  fi
+  echo "4) Файрвол: порт SSH $(sshport)"
+  ufw status 2>/dev/null | grep -q "Status: active" && ufw allow "$(sshport)/tcp" >/dev/null
+  echo "5) Перезапуск SSH"
+  systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
+  systemctl start ssh.socket 2>/dev/null || true
+  echo "Итог: SSH $(systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null), порт $(sshport)"
+  ;;
+*)
+  cat <<'HLP'
+kit-access — страховка доступа к серверу
+  status          показать состояние SSH, файрвола, ключей и банов
+  backup          сохранить копию настроек доступа
+  add-key "КЛЮЧ"  добавить публичный SSH-ключ (запасной вход)
+  unban IP        снять бан с адреса
+  unbanall        снять все баны
+  repair          починить частые поломки SSH (папка /run/sshd, сломанный конфиг, файрвол)
+Если потерян ВСЕ доступ (ключа нет, пароль забыт): консоль/VNC в панели хостера или режим Rescue.
+HLP
+  ;;
+esac

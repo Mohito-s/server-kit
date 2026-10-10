@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Telegram-бот управления сервером. Отвечает ТОЛЬКО на твой chat id.
+# Намеренно умеет мало: статус, снять бан, починить SSH. Ключи и пароли через бота менять нельзя.
+. /etc/server-kit/config.env
+[ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT_ID:-}" ] || { echo "нет токена/chat id"; exit 1; }
+API="https://api.telegram.org/bot${TG_TOKEN}"
+
+say() { curl -s -m 15 "$API/sendMessage" -d chat_id="$TG_CHAT_ID" --data-urlencode text="$(printf '%s' "$1" | head -c 3500)" >/dev/null || true; }
+
+handle() {
+  local cmd arg
+  cmd=${1%% *}; arg=""
+  [[ "$1" == *" "* ]] && arg=${1#* }
+  cmd=${cmd%%@*}
+  case "$cmd" in
+    /start|/help)
+      say $'Команды:\n/status — состояние сервера\n/unban 1.2.3.4 — снять бан с адреса\n/unbanall — снять все баны\n/repair — починить SSH' ;;
+    /status)
+      say "$(/usr/local/bin/kit-check 2>&1; echo; /usr/local/bin/kit-access status 2>&1)" ;;
+    /unban)
+      if [[ "$arg" =~ ^[0-9a-fA-F:.]+$ ]]; then say "$(cscli decisions delete --ip "$arg" 2>&1)"; else say "Напиши так: /unban 1.2.3.4"; fi ;;
+    /unbanall)
+      say "$(cscli decisions delete --all 2>&1)" ;;
+    /repair)
+      say "$(/usr/local/bin/kit-access repair 2>&1)" ;;
+    *)
+      say "Не знаю такую команду. /help" ;;
+  esac
+}
+
+# Пропускаем старые сообщения, чтобы после перезапуска не выполнить их повторно
+offset=""
+last=$(curl -s -m 15 "$API/getUpdates?offset=-1" | jq -r '.result[0].update_id // empty' 2>/dev/null)
+[ -n "$last" ] && offset=$((last + 1))
+
+while true; do
+  resp=$(curl -s -m 65 "$API/getUpdates?timeout=50${offset:+&offset=$offset}" || true)
+  [ -n "$resp" ] || { sleep 5; continue; }
+  next=$(echo "$resp" | jq -r '[.result[].update_id] | if length>0 then max+1 else empty end' 2>/dev/null || true)
+  while IFS=$'\t' read -r from text; do
+    [ "$from" = "$TG_CHAT_ID" ] || continue
+    handle "$text"
+  done < <(echo "$resp" | jq -r '.result[]? | select(.message.text) | [(.message.chat.id|tostring), .message.text] | @tsv' 2>/dev/null)
+  [ -n "$next" ] && offset=$next
+  sleep 1
+done
