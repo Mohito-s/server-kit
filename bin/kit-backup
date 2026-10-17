@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# kit-backup: создание умного архива настроек сервера и отправка в Telegram
+set -euo pipefail
+
+. /etc/server-kit/config.env 2>/dev/null || true
+BACKUP_DIR="/var/backups/server-kit"
+mkdir -p "$BACKUP_DIR"
+
+HOST="$(hostname -s 2>/dev/null || hostname)"
+TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+ARCHIVE_NAME="backup_${HOST}_${TIMESTAMP}.tar.gz"
+ARCHIVE_PATH="${BACKUP_DIR}/${ARCHIVE_NAME}"
+
+# Временная папка для сбора файлов
+TMP_STAGE="$(mktemp -d /tmp/kit_backup_stage.XXXXXX)"
+trap 'rm -rf "$TMP_STAGE"' EXIT
+
+echo "=== Сбор данных для бэкапа [$HOST] ==="
+
+# 1. Системные конфиги и безопасность
+mkdir -p "$TMP_STAGE/etc"
+[ -d /etc/server-kit ] && cp -r /etc/server-kit "$TMP_STAGE/etc/"
+[ -d /etc/ssh ] && cp -r /etc/ssh "$TMP_STAGE/etc/"
+[ -d /etc/ufw ] && cp -r /etc/ufw "$TMP_STAGE/etc/"
+[ -d /etc/crowdsec ] && cp -r /etc/crowdsec "$TMP_STAGE/etc/"
+
+# 2. SSH ключи пользователей (root и обычные пользователи)
+mkdir -p "$TMP_STAGE/ssh_keys/root"
+[ -d /root/.ssh ] && cp -r /root/.ssh "$TMP_STAGE/ssh_keys/root/"
+
+for home_dir in /home/*; do
+  if [ -d "$home_dir/.ssh" ]; then
+    u="$(basename "$home_dir")"
+    mkdir -p "$TMP_STAGE/ssh_keys/$u"
+    cp -r "$home_dir/.ssh" "$TMP_STAGE/ssh_keys/$u/"
+  fi
+done
+
+# 3. Веб-серверы и прокси (если есть)
+[ -d /etc/nginx ] && cp -r /etc/nginx "$TMP_STAGE/etc/"
+[ -d /etc/caddy ] && cp -r /etc/caddy "$TMP_STAGE/etc/"
+
+# 4. Docker Compose файлы и проекты в /opt
+mkdir -p "$TMP_STAGE/opt"
+find /opt -maxdepth 3 -type f \( -name "docker-compose*.yml" -o -name "docker-compose*.yaml" -o -name "*.env" \) 2>/dev/null | while read -r f; do
+  rel_dir="$TMP_STAGE/opt/$(dirname "${f#/opt/}")"
+  mkdir -p "$rel_dir"
+  cp "$f" "$rel_dir/"
+done
+
+# 5. Базы данных SQLite (если есть)
+mkdir -p "$TMP_STAGE/databases"
+find /opt /var/www /root -maxdepth 3 -type f -name "*.sqlite*" 2>/dev/null | while read -r db; do
+  base_db="$(basename "$db")"
+  cp "$db" "$TMP_STAGE/databases/${base_db}" 2>/dev/null || true
+done
+
+# 6. Дополнительные пути из config.env
+if [ -n "${EXTRA_BACKUP_PATHS:-}" ]; then
+  mkdir -p "$TMP_STAGE/extra"
+  for p in $EXTRA_BACKUP_PATHS; do
+    if [ -e "$p" ]; then
+      cp -r "$p" "$TMP_STAGE/extra/" 2>/dev/null || true
+    fi
+  done
+fi
+
+# 7. Метаданные сервера
+cat > "$TMP_STAGE/server_info.txt" <<INFO
+Host: $HOST
+Date: $(date -R)
+Kernel: $(uname -r)
+OS: $(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')
+UFW Rules:
+$(ufw status 2>/dev/null || true)
+INFO
+
+# Создание архива
+tar -czf "$ARCHIVE_PATH" -C "$TMP_STAGE" .
+ARCHIVE_SIZE="$(du -h "$ARCHIVE_PATH" | cut -f1)"
+
+echo "Архив успешно создан: $ARCHIVE_PATH ($ARCHIVE_SIZE)"
+
+# Ротация: оставляем только 1 самый свежий архив локально (защита от переполнения диска)
+find "$BACKUP_DIR" -maxdepth 1 -type f -name "backup_*.tar.gz" ! -name "$ARCHIVE_NAME" -delete
+
+# Отправка в Telegram
+if [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT_ID:-}" ]; then
+  echo "Отправка архива в Telegram..."
+  API="https://api.telegram.org/bot${TG_TOKEN}"
+  CAPTION="💾 <b>Бэкап сервера:</b> <code>${HOST}</code>%0A📅 <b>Дата:</b> $(date '+%d.%m.%Y %H:%M')%0A📦 <b>Размер:</b> ${ARCHIVE_SIZE}%0A🛡 В архиве: SSH-ключи, UFW, CrowdSec, Nginx/Docker конфиги, SQLite."
+
+  res=$(curl -s -m 60 -F "chat_id=${TG_CHAT_ID}" \
+    -F "document=@${ARCHIVE_PATH}" \
+    -F "caption=${CAPTION}" \
+    -F "parse_mode=HTML" \
+    "${API}/sendDocument" 2>/dev/null || true)
+
+  if echo "$res" | grep -q '"ok":true'; then
+    echo "✅ Архив успешно доставлен в Telegram админа!"
+  else
+    echo "⚠️ Ошибка отправки в Telegram: $res"
+  fi
+else
+  echo "Telegram не настроен (пропущена отправка). Файл сохранён локально: $ARCHIVE_PATH"
+fi

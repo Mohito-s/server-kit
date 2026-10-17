@@ -13,18 +13,17 @@
   Справка прямо на сервере: `bash install.sh --help`
 
 ## Установка
-1. Один раз: в `install.sh` замени `YOUR_USER` на свой ник GitHub.
-2. На сервере (под root):
+1. На чистом сервере под root:
 ```
-curl -fsSL https://raw.githubusercontent.com/YOUR_USER/server-kit/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Mohito-s/server-kit/main/install.sh | bash
 ```
 Скрипт покажет, что он умеет, проверит сервер, задаст вопросы и спросит подтверждение.
 Токен бота и chat id сохраняются только на сервере (`/etc/server-kit/config.env`, доступ только root).
-Секретов в репозитории нет, его можно сделать публичным.
+Секретов в репозитории нет, он публичный.
 
 Без вопросов:
 ```
-curl -fsSL https://raw.githubusercontent.com/YOUR_USER/server-kit/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/Mohito-s/server-kit/main/install.sh \
  | YES=1 TG_TOKEN=123:abc TG_CHAT_ID=12345 WITH_BOT=1 WITH_DOCKER=1 WITH_NETDATA=0 bash
 ```
 
@@ -41,7 +40,8 @@ curl -fsSL https://raw.githubusercontent.com/YOUR_USER/server-kit/main/install.s
 | firewall | «забор»: открыты только SSH, 80 и 443 (+ `EXTRA_PORTS`) |
 | crowdsec | «охранник»: банит подбор паролей и сканирование портов, пишет тебе |
 | access | страховка доступа: запасной ключ, защита SSH от поломки, команда `kit-access` |
-| bot | команды из Telegram: `/status`, `/unban`, `/repair` |
+| backup | автобэкап по воскресеньям настроек, SSH-ключей и баз в Telegram + `kit-restore` |
+| bot | команды из Telegram: `/menu`, `/status`, `/unban`, `/repair`, `/backup` |
 | docker | (по желанию) запуск сервисов в контейнерах, нужен для Remnawave |
 | netdata | (по желанию) графики нагрузки, только через SSH-туннель |
 | audit | проверка здоровья каждые 10 минут, оценка безопасности раз в неделю |
@@ -66,8 +66,9 @@ curl -fsSL https://raw.githubusercontent.com/YOUR_USER/server-kit/main/install.s
 Копия настроек доступа лежит в `/root/kit-backups` (внутри секреты, никому не отправляй).
 
 ## Другие команды
-- `kit-check` — самопроверка сейчас; `kit-audit` — аудит безопасности
-- `cscli decisions list` — кто забанен; `cscli metrics` — статистика
+- `kit-check` — самопроверка всех служб прямо сейчас; `kit-audit` — аудит безопасности Lynis
+- `kit-backup` — создание архива и отправка в Telegram; `kit-restore <файл>` — восстановление из архива
+- `cscli decisions list` — кто забанен; `cscli metrics` — статистика CrowdSec
 - Netdata: `ssh -L 19999:localhost:19999 root@СЕРВЕР`, затем http://localhost:19999
 
 ## Важно

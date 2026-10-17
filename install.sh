@@ -122,7 +122,7 @@ else
   save_conf
 fi
 
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 [ "${WITH_BOT:-0}"     = "1" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "${WITH_DOCKER:-0}"  = "1" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "${WITH_NETDATA:-0}" = "1" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
@@ -140,6 +140,7 @@ run alerts
 run firewall
 run crowdsec
 run access
+run backup
 [ "${WITH_BOT:-0}"     = "1" ] && run bot
 [ "${WITH_DOCKER:-0}"  = "1" ] && run docker
 [ "${WITH_NETDATA:-0}" = "1" ] && run netdata
@@ -157,6 +158,8 @@ echo -e "\033[0m"
 
 log "Полезные команды для работы:"
 echo "  • kit-check          — быстрая проверка статуса всех служб сервера"
+echo "  • kit-backup         — создать бэкап и мгновенно отправить в Telegram"
+echo "  • kit-restore <файл> — в 1 клик восстановить сервер из бэкапа"
 echo "  • kit-access help    — управление SSH-ключами и аварийным доступом"
 echo "  • kit-audit          — запуск аудита безопасности Lynis"
 echo "  • cscli decisions list — просмотр заблокированных IP в CrowdSec"

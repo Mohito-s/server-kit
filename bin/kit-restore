@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# kit-restore: быстрое восстановление сервера из архива kit-backup
+set -euo pipefail
+
+if [ $# -lt 1 ] || [ ! -f "$1" ]; then
+  echo "Использование: sudo kit-restore <файл_бэкапа.tar.gz>"
+  echo "Пример: sudo kit-restore /var/backups/server-kit/backup_vps_20261017.tar.gz"
+  exit 1
+fi
+
+ARCHIVE="$1"
+[ "$(id -u)" -eq 0 ] || { echo "Запустите от root (или через sudo)"; exit 1; }
+
+TMP_EXTRACT="$(mktemp -d /tmp/kit_restore.XXXXXX)"
+trap 'rm -rf "$TMP_EXTRACT"' EXIT
+
+echo "=== Распаковка архива: $ARCHIVE ==="
+tar -xzf "$ARCHIVE" -C "$TMP_EXTRACT"
+
+# 1. Восстановление /etc/server-kit
+if [ -d "$TMP_EXTRACT/etc/server-kit" ]; then
+  echo "Восстановление конфигурации server-kit..."
+  mkdir -p /etc/server-kit
+  cp -r "$TMP_EXTRACT/etc/server-kit/"* /etc/server-kit/ 2>/dev/null || true
+fi
+
+# 2. Восстановление SSH ключей
+echo "Восстановление SSH ключей..."
+if [ -d "$TMP_EXTRACT/ssh_keys/root/.ssh" ]; then
+  mkdir -p /root/.ssh
+  cp -r "$TMP_EXTRACT/ssh_keys/root/.ssh/"* /root/.ssh/
+  chmod 700 /root/.ssh && chmod 600 /root/.ssh/* 2>/dev/null || true
+fi
+
+for u_dir in "$TMP_EXTRACT/ssh_keys/"*; do
+  u="$(basename "$u_dir")"
+  if [ "$u" != "root" ] && id "$u" >/dev/null 2>&1; then
+    user_home="$(eval echo "~$u")"
+    mkdir -p "$user_home/.ssh"
+    cp -r "$u_dir/.ssh/"* "$user_home/.ssh/"
+    chown -R "$u:$u" "$user_home/.ssh"
+    chmod 700 "$user_home/.ssh" && chmod 600 "$user_home/.ssh/"* 2>/dev/null || true
+  fi
+done
+
+# 3. Восстановление UFW и CrowdSec
+if [ -d "$TMP_EXTRACT/etc/ufw" ]; then
+  echo "Восстановление правил UFW..."
+  cp -r "$TMP_EXTRACT/etc/ufw/"* /etc/ufw/ 2>/dev/null || true
+  ufw reload >/dev/null 2>&1 || true
+fi
+
+if [ -d "$TMP_EXTRACT/etc/crowdsec" ]; then
+  echo "Восстановление настроек CrowdSec..."
+  cp -r "$TMP_EXTRACT/etc/crowdsec/"* /etc/crowdsec/ 2>/dev/null || true
+  systemctl restart crowdsec >/dev/null 2>&1 || true
+fi
+
+# 4. Восстановление веб-серверов
+if [ -d "$TMP_EXTRACT/etc/nginx" ]; then
+  echo "Восстановление конфигурации Nginx..."
+  cp -r "$TMP_EXTRACT/etc/nginx/"* /etc/nginx/ 2>/dev/null || true
+  systemctl reload nginx >/dev/null 2>&1 || true
+fi
+
+# 5. Восстановление проектов в /opt
+if [ -d "$TMP_EXTRACT/opt" ]; then
+  echo "Восстановление проектов и Docker Compose в /opt..."
+  cp -rn "$TMP_EXTRACT/opt/"* /opt/ 2>/dev/null || true
+fi
+
+# 6. Восстановление баз данных
+if [ -d "$TMP_EXTRACT/databases" ]; then
+  echo "Восстановленные базы SQLite сохранены в /var/backups/server-kit/restored_databases/"
+  mkdir -p /var/backups/server-kit/restored_databases
+  cp -r "$TMP_EXTRACT/databases/"* /var/backups/server-kit/restored_databases/ 2>/dev/null || true
+fi
+
+echo "=== Восстановление успешно завершено! ==="
+echo "Ключи, фаервол и конфигурации служб возвращены на свои места."

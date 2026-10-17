@@ -64,7 +64,7 @@ CFG
 tg() { [ -x /usr/local/bin/kit-notify ] && /usr/local/bin/kit-notify "$1" || true; }
 
 # ---------- Описания для новичков ----------
-MODULE_LIST="base alerts firewall crowdsec access bot docker netdata audit"
+MODULE_LIST="base alerts firewall crowdsec access backup bot docker netdata audit"
 
 module_desc() {
   case "$1" in
@@ -73,7 +73,8 @@ module_desc() {
     firewall) echo "«забор» вокруг сервера: закрывает все порты, кроме SSH, 80 и 443 (готовый файрвол не ломает)" ;;
     crowdsec) echo "«охранник»: банит тех, кто подбирает пароли или сканирует порты, и сообщает вам" ;;
     access)   echo "страховка доступа: запасной ключ, защита SSH от частой поломки, команда kit-access для починки" ;;
-    bot)      echo "команды из Telegram: /status, /unban, /repair — если вас забанили или SSH сломался" ;;
+    backup)   echo "автобэкап по воскресеньям настроек, SSH-ключей и баз в Telegram + команда kit-restore" ;;
+    bot)      echo "команды из Telegram: /status, /unban, /repair, /backup — кнопки прямо в чате" ;;
     docker)   echo "(по желанию) запуск программ в изолированных «коробках» (контейнерах), нужен для Remnawave" ;;
     netdata)  echo "(по желанию) красивые графики нагрузки сервера в браузере" ;;
     audit)    echo "проверка здоровья сервера каждые 10 минут и раз в неделю оценка безопасности (Lynis)" ;;

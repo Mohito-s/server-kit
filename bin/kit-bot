@@ -92,7 +92,8 @@ handle() {
       say "$(/usr/local/bin/kit-audit 2>&1)"
       ;;
     /backup|backup|"💾 Бэкап")
-      say "$(/usr/local/bin/kit-access backup 2>&1)"
+      say "📦 Создаю полный бэкап сервера (SSH-ключи, UFW, CrowdSec, конфиги) и отправляю файл..."
+      /usr/local/bin/kit-backup >/dev/null 2>&1 || say "⚠️ Ошибка при создании бэкапа."
       ;;
     /vpn|vpn|"🌐 VPN статус"|"🌐 AmneziaWG VPN")
       local vpn_info
