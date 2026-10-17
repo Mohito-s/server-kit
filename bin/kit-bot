@@ -15,8 +15,9 @@ init_commands() {
         {"command": "unbanall", "description": "🔓 Снять все баны CrowdSec"},
         {"command": "audit", "description": "🛡 Проверка безопасности Lynis"},
         {"command": "repair", "description": "🛠 Починить SSH и фаервол"},
-        {"command": "backup", "description": "💾 Бэкап ключей и настроек SSH"},
-        {"command": "vpn", "description": "🌐 Проверка контейнера AmneziaWG"}
+        {"command": "backup", "description": "💾 Бэкап в Telegram"},
+        {"command": "vpn", "description": "🌐 Проверка AmneziaWG"},
+        {"command": "friends", "description": "👥 Список друзей в AmneziaWG"}
       ]
     }' >/dev/null 2>&1 || true
 }
@@ -29,9 +30,9 @@ say() {
 }
 
 send_menu() {
-  local inline_kbd='{"inline_keyboard":[[{"text":"📊 Статус сервера","callback_data":"status"},{"text":"🛡 Аудит Lynis","callback_data":"audit"}],[{"text":"🚫 Список банов","callback_data":"bans"},{"text":"🔓 Разбанить всех","callback_data":"unbanall"}],[{"text":"🛠 Починить SSH","callback_data":"repair"},{"text":"💾 Бэкап доступа","callback_data":"backup"}],[{"text":"🌐 AmneziaWG VPN","callback_data":"vpn"}]]}'
+  local inline_kbd='{"inline_keyboard":[[{"text":"📊 Статус сервера","callback_data":"status"},{"text":"🛡 Аудит Lynis","callback_data":"audit"}],[{"text":"🚫 Список банов","callback_data":"bans"},{"text":"🔓 Разбанить всех","callback_data":"unbanall"}],[{"text":"🛠 Починить SSH","callback_data":"repair"},{"text":"💾 Бэкап в Telegram","callback_data":"backup"}],[{"text":"🌐 AmneziaWG VPN","callback_data":"vpn"},{"text":"👥 Список друзей","callback_data":"friends"}]]}'
 
-  local keyboard='{"keyboard":[[{"text":"📊 Статус"},{"text":"🛡 Аудит"}],[{"text":"🚫 Баны"},{"text":"🔓 Разбанить всех"}],[{"text":"🛠 Починить SSH"},{"text":"💾 Бэкап"}],[{"text":"🌐 VPN статус"},{"text":"📋 Меню"}]],"resize_keyboard":true}'
+  local keyboard='{"keyboard":[[{"text":"📊 Статус"},{"text":"🛡 Аудит"}],[{"text":"🚫 Баны"},{"text":"🔓 Разбанить всех"}],[{"text":"🛠 Починить SSH"},{"text":"💾 Бэкап"}],[{"text":"🌐 VPN статус"},{"text":"👥 Друзья"}],[{"text":"📋 Меню"}]],"resize_keyboard":true}'
 
   local host_name
   host_name=$(hostname)
@@ -102,6 +103,17 @@ handle() {
       vpn_info+=$'\n\n=== UFW Порт 41695 ==='
       vpn_info+=$'\n'"$(ufw status 2>/dev/null | grep 41695 || echo 'Правило UFW не найдено')"
       say "$vpn_info"
+      ;;
+    /friends|friends|"👥 Друзья"|"👥 Список друзей")
+      say "$(/usr/local/bin/kit-friend list 2>&1)"
+      ;;
+    /addfriend|/friend)
+      if [ -n "$arg" ]; then
+        say "⏳ Создаю защищенный конфиг AmneziaWG для '$arg'..."
+        /usr/local/bin/kit-friend add "$arg" smart >/dev/null 2>&1 || say "⚠️ Ошибка при создании пира."
+      else
+        say "Укажите имя друга, например: /friend Alex"
+      fi
       ;;
     *)
       say "Неизвестная команда. Нажмите /menu для вызова меню."

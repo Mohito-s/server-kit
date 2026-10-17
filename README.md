@@ -41,7 +41,8 @@ curl -fsSL https://raw.githubusercontent.com/Mohito-s/server-kit/main/install.sh
 | crowdsec | «охранник»: банит подбор паролей и сканирование портов, пишет тебе |
 | access | страховка доступа: запасной ключ, защита SSH от поломки, команда `kit-access` |
 | backup | автобэкап по воскресеньям настроек, SSH-ключей и баз в Telegram + `kit-restore` |
-| bot | команды из Telegram: `/menu`, `/status`, `/unban`, `/repair`, `/backup` |
+| friends | раздача AmneziaWG друзьям: генерация QR и безопасный сплит (без слива IP в Госуслуги) |
+| bot | команды из Telegram: `/menu`, `/status`, `/unban`, `/repair`, `/backup`, `/friends` |
 | docker | (по желанию) запуск сервисов в контейнерах, нужен для Remnawave |
 | netdata | (по желанию) графики нагрузки, только через SSH-туннель |
 | audit | проверка здоровья каждые 10 минут, оценка безопасности раз в неделю |

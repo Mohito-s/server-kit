@@ -122,7 +122,7 @@ else
   save_conf
 fi
 
-TOTAL_STEPS=7
+TOTAL_STEPS=8
 [ "${WITH_BOT:-0}"     = "1" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "${WITH_DOCKER:-0}"  = "1" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "${WITH_NETDATA:-0}" = "1" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
@@ -141,12 +141,13 @@ run firewall
 run crowdsec
 run access
 run backup
+run friends
 [ "${WITH_BOT:-0}"     = "1" ] && run bot
 [ "${WITH_DOCKER:-0}"  = "1" ] && run docker
 [ "${WITH_NETDATA:-0}" = "1" ] && run netdata
 run audit
 
-tg "✅ Server-Kit v1.2 успешно установлен на $(hostname)"
+tg "✅ Server-Kit v1.3 успешно установлен на $(hostname)"
 
 echo -e "\033[1;32m"
 cat <<'DONE'
@@ -158,12 +159,13 @@ echo -e "\033[0m"
 
 log "Полезные команды для работы:"
 echo "  • kit-check          — быстрая проверка статуса всех служб сервера"
+echo "  • kit-friend add <имя> — создать QR-код и конфиг AmneziaWG для друга"
+echo "  • kit-friend list    — статистика и онлайн подключенных друзей"
 echo "  • kit-backup         — создать бэкап и мгновенно отправить в Telegram"
 echo "  • kit-restore <файл> — в 1 клик восстановить сервер из бэкапа"
 echo "  • kit-access help    — управление SSH-ключами и аварийным доступом"
 echo "  • kit-audit          — запуск аудита безопасности Lynis"
 echo "  • cscli decisions list — просмотр заблокированных IP в CrowdSec"
-echo "  • cscli decisions delete --all — снять все баны CrowdSec"
 if [ "${WITH_BOT:-0}" = "1" ]; then
   echo "  • Telegram Bot       — отправьте /menu в чат с ботом для управления"
 fi
