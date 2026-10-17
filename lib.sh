@@ -13,19 +13,37 @@ load_conf() { if [ -f "$CONF" ]; then . "$CONF"; fi; }
 
 # ask VAR "Вопрос" "значение по умолчанию"
 ask() {
-  local var=$1 q=$2 def=${3:-} ans=""
-  if [ -n "${!var:-}" ]; then return 0; fi
+  local var=$1 q=$2 cur="${!var:-}"
+  local def="${cur:-${3:-}}" ans=""
   if have_tty; then read -r -p "$q ${def:+[$def]}: " ans </dev/tty || true; fi
   printf -v "$var" '%s' "${ans:-$def}"
 }
 
 # ask_yn VAR "Вопрос" y|n
 ask_yn() {
-  local var=$1 q=$2 def=${3:-n} ans=""
-  if [ -n "${!var:-}" ]; then return 0; fi
+  local var=$1 q=$2 cur="${!var:-}"
+  local def="${3:-n}" ans=""
+  [ "$cur" = "1" ] && def="y"
+  [ "$cur" = "0" ] && def="n"
   if have_tty; then read -r -p "$q [y/n, Enter=$def]: " ans </dev/tty || true; fi
   ans=${ans:-$def}
   case "$ans" in y|Y|yes|д|Д|да) printf -v "$var" '%s' 1 ;; *) printf -v "$var" '%s' 0 ;; esac
+}
+
+test_tg_token() {
+  local token="${1:-}"
+  [ -n "$token" ] || return 1
+  local res
+  res=$(curl -s -m 5 "https://api.telegram.org/bot${token}/getMe" 2>/dev/null || true)
+  if echo "$res" | grep -q '"ok":true'; then
+    local bot_name
+    bot_name=$(echo "$res" | grep -o '"username":"[^"]*' | cut -d'"' -f4 || echo "Bot")
+    log "Telegram бот подтвержден: @$bot_name"
+    return 0
+  else
+    warn "Не удалось подключиться к Telegram боту с этим токеном"
+    return 1
+  fi
 }
 
 save_conf() {

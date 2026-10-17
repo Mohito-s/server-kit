@@ -1,46 +1,142 @@
 #!/usr/bin/env bash
-# Telegram-бот управления сервером. Отвечает ТОЛЬКО на твой chat id.
-# Намеренно умеет мало: статус, снять бан, починить SSH. Ключи и пароли через бота менять нельзя.
+# Telegram-бот управления сервером (server-kit)
 . /etc/server-kit/config.env
 [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT_ID:-}" ] || { echo "нет токена/chat id"; exit 1; }
 API="https://api.telegram.org/bot${TG_TOKEN}"
 
-say() { curl -s -m 15 "$API/sendMessage" -d chat_id="$TG_CHAT_ID" --data-urlencode text="$(printf '%s' "$1" | head -c 3500)" >/dev/null || true; }
+init_commands() {
+  curl -s -m 10 "$API/setMyCommands" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "commands": [
+        {"command": "menu", "description": "📱 Главное меню с кнопками"},
+        {"command": "status", "description": "📊 Состояние сервера и сервисов"},
+        {"command": "bans", "description": "🚫 Список заблокированных IP"},
+        {"command": "unbanall", "description": "🔓 Снять все баны CrowdSec"},
+        {"command": "audit", "description": "🛡 Проверка безопасности Lynis"},
+        {"command": "repair", "description": "🛠 Починить SSH и фаервол"},
+        {"command": "backup", "description": "💾 Бэкап ключей и настроек SSH"},
+        {"command": "vpn", "description": "🌐 Проверка контейнера AmneziaWG"}
+      ]
+    }' >/dev/null 2>&1 || true
+}
+
+say() {
+  local text="$1"
+  curl -s -m 15 "$API/sendMessage" \
+    -d chat_id="$TG_CHAT_ID" \
+    --data-urlencode text="$(printf '%s' "$text" | head -c 3900)" >/dev/null 2>&1 || true
+}
+
+send_menu() {
+  local inline_kbd='{"inline_keyboard":[[{"text":"📊 Статус сервера","callback_data":"status"},{"text":"🛡 Аудит Lynis","callback_data":"audit"}],[{"text":"🚫 Список банов","callback_data":"bans"},{"text":"🔓 Разбанить всех","callback_data":"unbanall"}],[{"text":"🛠 Починить SSH","callback_data":"repair"},{"text":"💾 Бэкап доступа","callback_data":"backup"}],[{"text":"🌐 AmneziaWG VPN","callback_data":"vpn"}]]}'
+
+  local keyboard='{"keyboard":[[{"text":"📊 Статус"},{"text":"🛡 Аудит"}],[{"text":"🚫 Баны"},{"text":"🔓 Разбанить всех"}],[{"text":"🛠 Починить SSH"},{"text":"💾 Бэкап"}],[{"text":"🌐 VPN статус"},{"text":"📋 Меню"}]],"resize_keyboard":true}'
+
+  local host_name
+  host_name=$(hostname)
+
+  curl -s -m 15 "$API/sendMessage" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n \
+      --arg cid "$TG_CHAT_ID" \
+      --arg txt "🖥 <b>Панель управления сервером</b> ($host_name)"$'\n'"Выберите нужное действие кнопками:" \
+      --argjson inline "$inline_kbd" \
+      '{chat_id: $cid, text: $txt, parse_mode: "HTML", reply_markup: $inline}')" >/dev/null 2>&1 || true
+
+  curl -s -m 15 "$API/sendMessage" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n \
+      --arg cid "$TG_CHAT_ID" \
+      --arg txt "⌨️ Кнопки быстрого доступа активны внизу экрана." \
+      --argjson kbd "$keyboard" \
+      '{chat_id: $cid, text: $txt, reply_markup: $kbd}')" >/dev/null 2>&1 || true
+}
 
 handle() {
+  local raw="$1"
   local cmd arg
-  cmd=${1%% *}; arg=""
-  [[ "$1" == *" "* ]] && arg=${1#* }
-  cmd=${cmd%%@*}
+  cmd="${raw%% *}"
+  arg=""
+  [[ "$raw" == *" "* ]] && arg="${raw#* }"
+  cmd="${cmd%%@*}"
+
   case "$cmd" in
-    /start|/help)
-      say $'Команды:\n/status — состояние сервера\n/unban 1.2.3.4 — снять бан с адреса\n/unbanall — снять все баны\n/repair — починить SSH' ;;
-    /status)
-      say "$(/usr/local/bin/kit-check 2>&1; echo; /usr/local/bin/kit-access status 2>&1)" ;;
+    /start|/menu|/help|menu|"📋 Меню"|"меню")
+      send_menu
+      ;;
+    /status|status|"📊 Статус"|"статус")
+      say "$(/usr/local/bin/kit-check 2>&1; echo; /usr/local/bin/kit-access status 2>&1)"
+      ;;
+    /bans|bans|"🚫 Баны"|"баны")
+      local blist
+      blist="$(cscli decisions list 2>&1 | head -35)"
+      [ -n "$blist" ] || blist="Список банов пуст (никто не заблокирован)"
+      say "$blist"
+      ;;
     /unban)
-      if [[ "$arg" =~ ^[0-9a-fA-F:.]+$ ]]; then say "$(cscli decisions delete --ip "$arg" 2>&1)"; else say "Напиши так: /unban 1.2.3.4"; fi ;;
-    /unbanall)
-      say "$(cscli decisions delete --all 2>&1)" ;;
-    /repair)
-      say "$(/usr/local/bin/kit-access repair 2>&1)" ;;
+      if [[ "$arg" =~ ^[0-9a-fA-F:.]+$ ]]; then
+        say "$(cscli decisions delete --ip "$arg" 2>&1)"
+      else
+        say "Напишите команду с IP: /unban 1.2.3.4"
+      fi
+      ;;
+    /unbanall|unbanall|"🔓 Разбанить всех"|"🔓 Снять все баны")
+      say "$(cscli decisions delete --all 2>&1)"
+      ;;
+    /repair|repair|"🛠 Починить SSH")
+      say "$(/usr/local/bin/kit-access repair 2>&1)"
+      ;;
+    /audit|audit|"🛡 Аудит")
+      say "🔍 Запускаю аудит безопасности Lynis (займет ~25 сек)..."
+      say "$(/usr/local/bin/kit-audit 2>&1)"
+      ;;
+    /backup|backup|"💾 Бэкап")
+      say "$(/usr/local/bin/kit-access backup 2>&1)"
+      ;;
+    /vpn|vpn|"🌐 VPN статус"|"🌐 AmneziaWG VPN")
+      local vpn_info
+      vpn_info="=== AmneziaWG Docker ==="
+      vpn_info+=$'\n'"$(docker ps --filter name=amnezia --format 'Контейнер: {{.Names}} | Статус: {{.Status}} | Порты: {{.Ports}}' 2>&1)"
+      vpn_info+=$'\n\n=== UFW Порт 41695 ==='
+      vpn_info+=$'\n'"$(ufw status 2>/dev/null | grep 41695 || echo 'Правило UFW не найдено')"
+      say "$vpn_info"
+      ;;
     *)
-      say "Не знаю такую команду. /help" ;;
+      say "Неизвестная команда. Нажмите /menu для вызова меню."
+      ;;
   esac
 }
 
-# Пропускаем старые сообщения, чтобы после перезапуска не выполнить их повторно
+init_commands
+
 offset=""
-last=$(curl -s -m 15 "$API/getUpdates?offset=-1" | jq -r '.result[0].update_id // empty' 2>/dev/null)
+last=$(curl -s -m 15 "$API/getUpdates?offset=-1" 2>/dev/null | jq -r '.result[0].update_id // empty' 2>/dev/null)
 [ -n "$last" ] && offset=$((last + 1))
 
 while true; do
-  resp=$(curl -s -m 65 "$API/getUpdates?timeout=50${offset:+&offset=$offset}" || true)
+  resp=$(curl -s -m 65 "$API/getUpdates?timeout=50${offset:+&offset=$offset}" 2>/dev/null || true)
   [ -n "$resp" ] || { sleep 5; continue; }
+
   next=$(echo "$resp" | jq -r '[.result[].update_id] | if length>0 then max+1 else empty end' 2>/dev/null || true)
-  while IFS=$'\t' read -r from text; do
-    [ "$from" = "$TG_CHAT_ID" ] || continue
-    handle "$text"
-  done < <(echo "$resp" | jq -r '.result[]? | select(.message.text) | [(.message.chat.id|tostring), .message.text] | @tsv' 2>/dev/null)
+
+  while IFS= read -r upd; do
+    [ -n "$upd" ] || continue
+
+    chat_id=$(echo "$upd" | jq -r '(.message.chat.id // .callback_query.from.id // empty) | tostring' 2>/dev/null)
+    [ "$chat_id" = "$TG_CHAT_ID" ] || continue
+
+    cb_id=$(echo "$upd" | jq -r '.callback_query.id // empty' 2>/dev/null)
+    if [ -n "$cb_id" ]; then
+      curl -s -m 5 "$API/answerCallbackQuery" -d callback_query_id="$cb_id" >/dev/null 2>&1 || true
+    fi
+
+    cmd_text=$(echo "$upd" | jq -r '.message.text // .callback_query.data // empty' 2>/dev/null)
+    [ -n "$cmd_text" ] || continue
+
+    handle "$cmd_text"
+  done < <(echo "$resp" | jq -c '.result[]?' 2>/dev/null)
+
   [ -n "$next" ] && offset=$next
   sleep 1
 done
